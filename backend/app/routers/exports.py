@@ -38,14 +38,16 @@ def export_nodes(
     deployment_state: DeploymentState | None = None,
     overall_status: NodeStatus | None = None,
     assigned_user_id: int | None = None,
+    mine: bool = Query(False, description="Only nodes the caller works on"),
 ) -> Response:
+    """The filters mirror ``GET /nodes`` so an export matches what is on screen."""
     stmt = node_crud.build_query(
         search=search,
         circle_id=circle_id,
         product_id=product_id,
         deployment_state=deployment_state,
         overall_status=overall_status,
-        assigned_user_id=assigned_user_id,
+        assigned_user_id=current_user.id if mine else assigned_user_id,
         sort_by="node_name",
         sort_dir="asc",
     ).limit(MAX_EXPORT_ROWS)
@@ -90,12 +92,14 @@ def export_activities(
     assigned_to: int | None = None,
     circle_id: int | None = None,
     product_id: int | None = None,
+    mine: bool = Query(False, description="Only activities assigned to the caller"),
 ) -> Response:
+    """The filters mirror ``GET /activities`` so an export matches what is on screen."""
     stmt = activity_crud.build_list_query(
         search=search,
         node_id=node_id,
         status=status,
-        assigned_to=assigned_to,
+        assigned_to=current_user.id if mine else assigned_to,
         circle_id=circle_id,
         product_id=product_id,
     ).limit(MAX_EXPORT_ROWS)

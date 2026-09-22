@@ -22,6 +22,7 @@ backend/storage/activity_logs/*
 
 # Node
 node_modules/
+*.tsbuildinfo
 dist/
 dist-ssr/
 *.local
@@ -41,3 +42,6 @@ Thumbs.db
 
 # Exports
 backend/exports/
+
+# Browser smoke-test output
+frontend/e2e/screenshots/

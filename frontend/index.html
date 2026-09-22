@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1220" />
+    <meta
+      name="description"
+      content="NNM - Nokia Node Manager: track node deployments, activities and engineer ownership."
+    />
+    <title>NNM · Nokia Node Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the stored theme before first paint so there is no flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("nnm.theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (stored === "dark" || (stored !== "light" && prefersDark)) {
+            document.documentElement.classList.add("dark");
+          }
+        } catch (error) {
+          /* storage unavailable -- fall back to light */
+        }
+      })();
+    </script>
+  </head>
+  <body class="h-full bg-background text-foreground antialiased">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

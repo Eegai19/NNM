@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme -- Nokia-blue accented enterprise palette */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 214 78% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 32% 94%;
+    --secondary-foreground: 222 47% 18%;
+
+    --muted: 214 32% 95%;
+    --muted-foreground: 215 16% 42%;
+
+    --accent: 214 95% 94%;
+    --accent-foreground: 214 78% 28%;
+
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 62% 33%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 28% 88%;
+    --input: 214 28% 88%;
+    --ring: 214 78% 42%;
+
+    --sidebar: 218 52% 15%;
+    --sidebar-foreground: 210 30% 88%;
+    --sidebar-accent: 214 70% 26%;
+    --sidebar-border: 218 40% 24%;
+
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 210 30% 94%;
+
+    --card: 222 42% 12%;
+    --card-foreground: 210 30% 94%;
+
+    --popover: 222 42% 12%;
+    --popover-foreground: 210 30% 94%;
+
+    --primary: 212 85% 60%;
+    --primary-foreground: 222 47% 10%;
+
+    --secondary: 217 32% 18%;
+    --secondary-foreground: 210 30% 92%;
+
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 18% 65%;
+
+    --accent: 217 45% 22%;
+    --accent-foreground: 212 90% 78%;
+
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 52% 45%;
+    --success-foreground: 222 47% 10%;
+
+    --warning: 35 88% 56%;
+    --warning-foreground: 222 47% 10%;
+
+    --border: 217 30% 22%;
+    --input: 217 30% 22%;
+    --ring: 212 85% 60%;
+
+    --sidebar: 222 47% 10%;
+    --sidebar-foreground: 210 28% 86%;
+    --sidebar-accent: 217 45% 22%;
+    --sidebar-border: 217 30% 20%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* A slim, unobtrusive scrollbar that works in both themes. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .nnm-card {
+    @apply rounded-lg border border-border bg-card text-card-foreground shadow-sm;
+  }
+
+  .nnm-surface {
+    @apply rounded-lg border border-border bg-card/60 backdrop-blur;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -211,3 +211,35 @@ def test_node_timeline_endpoint(client: TestClient, tpm_headers, node) -> None:
 def test_login_is_audited(client: TestClient, tpm_headers) -> None:
     trail = client.get("/api/audit?action=LOGIN", headers=tpm_headers).json()
     assert trail["total"] >= 1
+
+
+def test_export_honours_the_mine_filter(
+    client: TestClient, db_session, tpm_headers, engineer_headers, node: Node, engineer_user
+) -> None:
+    """Exporting while 'My nodes' is active must not silently return everything."""
+    db_session.add(
+        NodeAssignment(
+            node_id=node.id, user_id=engineer_user.id, role=AssignmentRole.SUPPORT_ENGINEER
+        )
+    )
+    db_session.commit()
+
+    everything = client.get("/api/exports/nodes.xlsx", headers=engineer_headers)
+    assert everything.status_code == 200
+
+    mine = client.get("/api/exports/nodes.xlsx?mine=true", headers=engineer_headers)
+    assert mine.status_code == 200
+    assert _is_xlsx(mine.content)
+
+
+def test_activity_export_honours_the_mine_filter(
+    client: TestClient, tpm_headers, engineer_headers, node, activity_master, engineer_user
+) -> None:
+    client.post(
+        f"/api/nodes/{node.id}/activities",
+        headers=tpm_headers,
+        json={"activity_master_id": activity_master.id, "assigned_to": engineer_user.id},
+    )
+    response = client.get("/api/exports/activities.xlsx?mine=true", headers=engineer_headers)
+    assert response.status_code == 200
+    assert _is_xlsx(response.content)
