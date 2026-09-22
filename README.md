@@ -49,6 +49,10 @@ npm run dev
 
 Open <http://localhost:5173> and sign in.
 
+> That is the two-terminal development setup, with Vite's hot reload. To run
+> the whole thing as **one process on one port**, see
+> [Deployment](#deployment) — `docker compose up --build` is the short version.
+
 | Account | Username | Password | Role |
 |---|---|---|---|
 | Bootstrap admin | `admin` | `Admin@123` | TPM |
@@ -112,6 +116,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000   # bind for a LAN/container
 
 | URL | What |
 |---|---|
+| `/` | The web UI when a frontend build is present, otherwise a JSON banner |
+| `/api` | Service banner |
 | `/docs` | Swagger UI |
 | `/redoc` | ReDoc |
 | `/openapi.json` | OpenAPI schema |
@@ -161,6 +167,7 @@ hits CORS locally. Point it elsewhere with `VITE_PROXY_TARGET`.
 | `NNM_ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Token lifetime without "remember me" |
 | `NNM_DATABASE_URL` | `sqlite:///./nnm.db` | SQLAlchemy URL |
 | `NNM_STORAGE_DIR` | `./storage/activity_logs` | Where uploaded files are written |
+| `NNM_FRONTEND_DIST_DIR` | `../frontend/dist` | Built frontend to serve. When it exists the API also serves the UI, so the app runs on one port |
 | `NNM_MAX_UPLOAD_SIZE_MB` | `25` | Per-file upload cap |
 | `NNM_CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated allowed origins |
 | `NNM_FIRST_TPM_USERNAME` | `admin` | Bootstrap account (seed script) |
@@ -506,58 +513,83 @@ NNM/
 
 ## Deployment
 
-### 1. Build the frontend
+The API can serve the built frontend itself, so the whole application runs as
+**one process on one port**. Everything is same-origin, which means there is no
+CORS to configure and no second service to operate.
 
-```bash
-cd frontend
-VITE_API_BASE_URL=/api npm run build      # outputs dist/
+```
+                    ┌──────────────────────────────────┐
+  browser ─────────▶│  uvicorn / gunicorn   :8000      │
+                    │                                  │
+                    │   /              → index.html    │
+                    │   /dashboard     → index.html    │  (client-side routes)
+                    │   /assets/*      → hashed JS/CSS │
+                    │   /api/*         → FastAPI       │
+                    │   /docs, /health → FastAPI       │
+                    └───────────────┬──────────────────┘
+                                    │
+                            /data   ├── nnm.db            (SQLite)
+                                    └── activity_logs/    (uploaded artifacts)
 ```
 
-Serve `dist/` from any static host or CDN. It is a single-page app, so the
-server must fall back to `index.html` for unknown paths:
+### Option 1 — Docker (recommended)
 
-```nginx
-server {
-    listen 80;
-    server_name nnm.example.com;
-
-    root /srv/nnm/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;      # SPA fallback
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 30M;              # >= NNM_MAX_UPLOAD_SIZE_MB
-    }
-}
-```
-
-Serving both from one origin like this means you do not need CORS at all.
-
-### 2. Run the backend
+One image contains both halves: [`Dockerfile`](Dockerfile) builds the React app
+in a Node stage, then copies that build into the Python runtime.
 
 ```bash
-cd backend
-pip install -r requirements.txt "uvicorn[standard]" gunicorn
-python -m scripts.seed                       # first deploy only
+docker compose up --build
+docker compose exec nnm python -m scripts.seed --demo    # first run only
+```
+
+The app is then on <http://localhost:8000> — UI, API and `/docs` alike.
+
+Without compose:
+
+```bash
+docker build -t nnm .
+docker run -d --name nnm -p 8000:8000 \
+  -v nnm-data:/data \
+  -e NNM_SECRET_KEY="$(python -c 'import secrets;print(secrets.token_urlsafe(64))')" \
+  nnm
+docker exec nnm python -m scripts.seed
+```
+
+`/data` is the only writable state — the SQLite file and the uploaded
+artifacts. Mount a volume there and back it up.
+
+To use PostgreSQL instead, start the bundled database and point the app at it:
+
+```bash
+docker compose --profile postgres up --build
+# with NNM_DATABASE_URL=postgresql+psycopg://nnm:nnm@db:5432/nnm in the environment
+```
+
+### Option 2 — Without Docker
+
+Build the frontend once, then run the API; it picks the build up automatically
+because `frontend/dist` sits next to `backend/`.
+
+```bash
+cd frontend && npm ci && npm run build
+cd ../backend
+pip install -r requirements.txt gunicorn
+python -m scripts.seed
 
 gunicorn app.main:app \
   --worker-class uvicorn.workers.UvicornWorker \
-  --workers 4 --bind 127.0.0.1:8000
+  --workers 1 --bind 0.0.0.0:8000
 ```
+
+Point `NNM_FRONTEND_DIST_DIR` somewhere else if you keep the build elsewhere.
+`GET /health` reports `"frontend": "bundled"` when the UI is being served and
+`"separate"` when the API is running alone.
 
 As a systemd unit:
 
 ```ini
 [Unit]
-Description=NNM API
+Description=NNM
 After=network.target
 
 [Service]
@@ -565,71 +597,42 @@ User=nnm
 WorkingDirectory=/srv/nnm/backend
 EnvironmentFile=/srv/nnm/backend/.env
 ExecStart=/srv/nnm/backend/.venv/bin/gunicorn app.main:app \
-  --worker-class uvicorn.workers.UvicornWorker --workers 4 --bind 127.0.0.1:8000
+  --worker-class uvicorn.workers.UvicornWorker --workers 1 --bind 0.0.0.0:8000
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### Deploying the frontend to Vercel
+Put a reverse proxy in front for TLS. It only needs to forward everything to
+port 8000 — no SPA rewrite rules, because the app handles its own routing:
 
-The frontend is a static Vite SPA and deploys to Vercel as-is —
-[`frontend/vercel.json`](frontend/vercel.json) carries the build settings, the
-single-page-app fallback and asset caching.
+```nginx
+server {
+    listen 443 ssl;
+    server_name nnm.example.com;
 
-1. **Import the repository** in Vercel and set **Root Directory** to `frontend`.
-   The framework preset, build command and output directory come from
-   `vercel.json`.
-2. **Set the API base URL** under Settings → Environment Variables:
-
-   ```
-   VITE_API_BASE_URL = https://your-backend-host/api
-   ```
-
-   This is read at build time, not at runtime, so changing it needs a redeploy.
-3. **Allow the Vercel origin on the backend**, otherwise the browser blocks
-   every call:
-
-   ```
-   NNM_CORS_ORIGINS=https://your-project.vercel.app,https://nnm.yourdomain.com
-   ```
-
-   Preview deployments get their own generated URLs, so either add them too or
-   point previews at a separate backend.
-
-**The backend cannot run on Vercel unchanged.** Vercel functions have an
-ephemeral filesystem, and this app uses local disk twice:
-
-| What | Where | Why it breaks |
-|---|---|---|
-| SQLite database | `NNM_DATABASE_URL=sqlite:///./nnm.db` | Written to local disk; every invocation may start from a fresh container, so data does not survive |
-| Activity log artifacts | `NNM_STORAGE_DIR`, served with `FileResponse` | Uploads land on a disk that disappears, so evidence files are lost — and the completion rule depends on them |
-
-Two ways forward:
-
-**Host the backend where it has a disk (simplest).** Railway, Render, Fly.io and
-a plain VM all give you a persistent volume and managed PostgreSQL. No code
-changes — just environment variables:
-
-```
-NNM_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/nnm
-NNM_STORAGE_DIR=/data/activity_logs        # a mounted persistent volume
-NNM_SECRET_KEY=<a long random value>
-NNM_CORS_ORIGINS=https://your-project.vercel.app
-NNM_DEBUG=false
-NNM_ENVIRONMENT=production
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 30M;      # >= NNM_MAX_UPLOAD_SIZE_MB
+    }
+}
 ```
 
-Remember to `pip install "psycopg[binary]"` and run `python -m scripts.seed`
-once against the new database.
+### Running the two halves separately
 
-**Or run the API on Vercel too**, which needs both storage layers replaced:
-PostgreSQL (Vercel Postgres, Neon or Supabase — already supported through
-`NNM_DATABASE_URL`) plus object storage for artifacts. The second part is a
-real change: `app/services/storage_service.py` and the download endpoint in
-`app/routers/activities.py` would move from local paths to Vercel Blob or S3,
-with downloads redirecting to a signed URL instead of streaming from disk.
+The single-process setup is the default, not a requirement. Skip the frontend
+build and the API serves only `/api`; run `npm run dev` (or host `dist/` on a
+CDN or Vercel — see [`frontend/vercel.json`](frontend/vercel.json)) and set
+`VITE_API_BASE_URL` plus `NNM_CORS_ORIGINS` to connect the two.
+
+Note that a serverless host cannot run the API, whichever split you choose:
+uploaded artifacts and the SQLite file need a filesystem that survives between
+requests.
 
 ### Production checklist
 
@@ -641,12 +644,13 @@ with downloads redirecting to a signed URL instead of streaming from disk.
 - [ ] `NNM_STORAGE_DIR` on persistent, backed-up storage (**not** inside a
       container layer that is recreated on deploy)
 - [ ] Reverse proxy `client_max_body_size` at least `NNM_MAX_UPLOAD_SIZE_MB`
+- [ ] `/data` (or `NNM_STORAGE_DIR` and the database) on a mounted volume
 - [ ] HTTPS terminated at the proxy
 - [ ] Database and `storage/` included in your backup schedule
 
-> Multiple backend workers require a shared database and a shared storage
-> directory. SQLite tolerates a single worker; use PostgreSQL and shared
-> storage (or object storage) before scaling out.
+> Keep `--workers 1` while you are on SQLite. Multiple workers need a shared
+> database and shared storage, so move to PostgreSQL and a shared volume before
+> scaling out.
 
 ---
 

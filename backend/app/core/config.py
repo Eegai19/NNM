@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Database ------------------------------------------------------------
     database_url: str = f"sqlite:///{BASE_DIR / 'nnm.db'}"
 
+    # Bundled frontend ----------------------------------------------------
+    #: Directory holding the built frontend. When it exists the API also serves
+    #: the SPA, so the whole app runs as a single process on a single port.
+    frontend_dist_dir: Path = BASE_DIR.parent / "frontend" / "dist"
+
     # File storage --------------------------------------------------------
     storage_dir: Path = BASE_DIR / "storage" / "activity_logs"
     max_upload_size_mb: int = 25
@@ -72,7 +77,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in text.split(",") if origin.strip()]
         return value
 
-    @field_validator("storage_dir", mode="before")
+    @field_validator("storage_dir", "frontend_dist_dir", mode="before")
     @classmethod
     def _resolve_storage(cls, value: object) -> object:
         if isinstance(value, str):
@@ -83,6 +88,11 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def serves_frontend(self) -> bool:
+        """True when a built frontend is present next to the API."""
+        return (Path(self.frontend_dist_dir) / "index.html").is_file()
 
     @property
     def is_sqlite(self) -> bool:

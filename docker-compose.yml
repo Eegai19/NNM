@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# NNM - one container serving the API and the UI on http://localhost:8000
+#
+#   docker compose up --build          # start
+#   docker compose exec nnm python -m scripts.seed --demo    # load demo data
+#
+# The `postgres` profile swaps SQLite for PostgreSQL:
+#   docker compose --profile postgres up --build
+# ---------------------------------------------------------------------------
+
+services:
+  nnm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nnm:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # CHANGE THIS before exposing the app to anyone.
+      NNM_SECRET_KEY: ${NNM_SECRET_KEY:-change-me-to-a-long-random-string}
+      NNM_ENVIRONMENT: ${NNM_ENVIRONMENT:-production}
+      NNM_DEBUG: "false"
+      NNM_ACCESS_TOKEN_EXPIRE_MINUTES: ${NNM_ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+      NNM_MAX_UPLOAD_SIZE_MB: ${NNM_MAX_UPLOAD_SIZE_MB:-25}
+      # Bootstrap TPM -- change the password after the first sign-in.
+      NNM_FIRST_TPM_USERNAME: ${NNM_FIRST_TPM_USERNAME:-admin}
+      NNM_FIRST_TPM_PASSWORD: ${NNM_FIRST_TPM_PASSWORD:-Admin@123}
+    volumes:
+      # The database and uploaded artifacts. Back this up.
+      - nnm-data:/data
+    restart: unless-stopped
+
+  # --- Optional PostgreSQL -------------------------------------------------
+  # Enable with `--profile postgres`, and point the app at it by also setting
+  # NNM_DATABASE_URL=postgresql+psycopg://nnm:nnm@db:5432/nnm
+  db:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nnm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nnm}
+      POSTGRES_DB: nnm
+    volumes:
+      - nnm-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nnm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  nnm-data:
+  nnm-db:

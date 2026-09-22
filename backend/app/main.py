@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.frontend import mount_frontend
 from app.routers import (
     activities,
     audit,
@@ -118,8 +119,8 @@ for router in (
     app.include_router(router, prefix=API)
 
 
-@app.get("/", tags=["Health"], summary="Service banner")
-def root() -> dict[str, str]:
+@app.get("/api", tags=["Health"], summary="Service banner")
+def api_root() -> dict[str, str]:
     return {
         "name": settings.project_name,
         "version": app.version,
@@ -130,4 +131,22 @@ def root() -> dict[str, str]:
 
 @app.get("/health", tags=["Health"], summary="Liveness probe")
 def health() -> dict[str, str]:
-    return {"status": "healthy", "environment": settings.environment}
+    return {
+        "status": "healthy",
+        "environment": settings.environment,
+        "frontend": "bundled" if settings.serves_frontend else "separate",
+    }
+
+
+# Mounted last: the SPA fallback must only see paths no API route claimed.
+# Without a frontend build this is a no-op and "/" serves the banner below.
+if not mount_frontend(app):
+
+    @app.get("/", tags=["Health"], summary="Service banner")
+    def root() -> dict[str, str]:
+        return {
+            "name": settings.project_name,
+            "version": app.version,
+            "docs": "/docs",
+            "status": "ok",
+        }
