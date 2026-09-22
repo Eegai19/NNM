@@ -572,6 +572,65 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+### Deploying the frontend to Vercel
+
+The frontend is a static Vite SPA and deploys to Vercel as-is —
+[`frontend/vercel.json`](frontend/vercel.json) carries the build settings, the
+single-page-app fallback and asset caching.
+
+1. **Import the repository** in Vercel and set **Root Directory** to `frontend`.
+   The framework preset, build command and output directory come from
+   `vercel.json`.
+2. **Set the API base URL** under Settings → Environment Variables:
+
+   ```
+   VITE_API_BASE_URL = https://your-backend-host/api
+   ```
+
+   This is read at build time, not at runtime, so changing it needs a redeploy.
+3. **Allow the Vercel origin on the backend**, otherwise the browser blocks
+   every call:
+
+   ```
+   NNM_CORS_ORIGINS=https://your-project.vercel.app,https://nnm.yourdomain.com
+   ```
+
+   Preview deployments get their own generated URLs, so either add them too or
+   point previews at a separate backend.
+
+**The backend cannot run on Vercel unchanged.** Vercel functions have an
+ephemeral filesystem, and this app uses local disk twice:
+
+| What | Where | Why it breaks |
+|---|---|---|
+| SQLite database | `NNM_DATABASE_URL=sqlite:///./nnm.db` | Written to local disk; every invocation may start from a fresh container, so data does not survive |
+| Activity log artifacts | `NNM_STORAGE_DIR`, served with `FileResponse` | Uploads land on a disk that disappears, so evidence files are lost — and the completion rule depends on them |
+
+Two ways forward:
+
+**Host the backend where it has a disk (simplest).** Railway, Render, Fly.io and
+a plain VM all give you a persistent volume and managed PostgreSQL. No code
+changes — just environment variables:
+
+```
+NNM_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/nnm
+NNM_STORAGE_DIR=/data/activity_logs        # a mounted persistent volume
+NNM_SECRET_KEY=<a long random value>
+NNM_CORS_ORIGINS=https://your-project.vercel.app
+NNM_DEBUG=false
+NNM_ENVIRONMENT=production
+```
+
+Remember to `pip install "psycopg[binary]"` and run `python -m scripts.seed`
+once against the new database.
+
+**Or run the API on Vercel too**, which needs both storage layers replaced:
+PostgreSQL (Vercel Postgres, Neon or Supabase — already supported through
+`NNM_DATABASE_URL`) plus object storage for artifacts. The second part is a
+real change: `app/services/storage_service.py` and the download endpoint in
+`app/routers/activities.py` would move from local paths to Vercel Blob or S3,
+with downloads redirecting to a signed URL instead of streaming from disk.
+
 ### Production checklist
 
 - [ ] `NNM_SECRET_KEY` set to a long random value (never the default)
