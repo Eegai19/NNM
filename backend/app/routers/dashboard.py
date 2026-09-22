@@ -8,6 +8,7 @@ from app.schemas.dashboard import (
     CircleSummaryItem,
     DashboardSummary,
     EngineerWorkloadItem,
+    HierarchyProduct,
     StatusBreakdownItem,
 )
 from app.services import dashboard_service
@@ -45,3 +46,17 @@ def engineer_workload(
 )
 def status_breakdown(db: DbSession, current_user: CurrentUser) -> list[StatusBreakdownItem]:
     return dashboard_service.status_breakdown(db)
+
+
+@router.get(
+    "/hierarchy",
+    response_model=list[HierarchyProduct],
+    summary="Product -> circle rollup for the dashboard drill-down",
+)
+def hierarchy(db: DbSession, current_user: CurrentUser) -> list[HierarchyProduct]:
+    """Node and activity counts per product and per circle within it.
+
+    Expanding a circle in the UI loads its nodes from
+    ``GET /nodes?product_id=&circle_id=``, so this stays a small response.
+    """
+    return dashboard_service.hierarchy(db)

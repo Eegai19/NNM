@@ -33,8 +33,32 @@ await step("sign in as TPM", async () => {
 await step("dashboard shows real counters", async () => {
   const text = await page.locator("main").innerText();
   if (!/Total nodes/.test(text)) throw new Error("no stat cards");
-  if (!/\b40\b/.test(text)) throw new Error("expected 40 nodes in the demo data");
+  if (!/\b28\b/.test(text)) throw new Error("expected 28 nodes in the demo data");
   if (!/Engineer workload/.test(text)) throw new Error("workload chart missing");
+});
+
+await step("dashboard drill-down: product -> circle -> node", async () => {
+  await page.getByText("Browse by product and circle").scrollIntoViewIfNeeded();
+  // Scope to the explorer list: chart axis labels carry the same circle names.
+  const scope = page.locator("ul").filter({ hasText: /CMD/ }).first();
+  await scope.waitFor({ timeout: 10000 });
+
+  // CMM auto-opens because it is the first product holding nodes.
+  await scope.getByRole("button", { name: /^CMM\b/ }).waitFor({ timeout: 10000 });
+
+  const circle = scope.getByRole("button", { name: /^UPE\b/ });
+  await circle.waitFor({ timeout: 10000 });
+  await circle.click();
+  await page.waitForTimeout(1800);
+
+  const nodeLinks = scope.locator('a[href^="/nodes/"]');
+  const count = await nodeLinks.count();
+  if (count === 0) throw new Error("expanding UPE loaded no nodes");
+
+  const first = (await nodeLinks.first().innerText()).trim();
+  if (!/^UE/i.test(first)) throw new Error("unexpected node under UPE: " + first);
+
+  await page.screenshot({ path: `${OUT}/19-drilldown.png`, fullPage: true });
 });
 
 await step("dark mode toggles", async () => {
@@ -52,12 +76,12 @@ await step("nodes list paginates and filters", async () => {
   await page.waitForURL("**/nodes");
   await page.waitForTimeout(1200);
   const text = await page.locator("main").innerText();
-  if (!/of 40/.test(text)) throw new Error("pagination total missing: " + text.slice(0, 300));
+  if (!/of 28/.test(text)) throw new Error("pagination total missing: " + text.slice(0, 300));
   await page.screenshot({ path: `${OUT}/04-nodes.png`, fullPage: true });
 });
 
 await step("global search returns hits", async () => {
-  await page.getByLabel("Global search").fill("TN-NOK");
+  await page.getByLabel("Global search").fill("NCMM");
   await page.waitForTimeout(1200);
   const dropdown = await page.locator("text=Nodes").count();
   if (dropdown === 0) throw new Error("no search results group");
@@ -87,7 +111,7 @@ await step("activities page loads", async () => {
   await page.waitForURL("**/activities");
   await page.waitForTimeout(1200);
   const text = await page.locator("main").innerText();
-  if (!/of 184/.test(text)) throw new Error("expected 184 activities: " + text.slice(0, 300));
+  if (!/of 196/.test(text)) throw new Error("expected 196 activities: " + text.slice(0, 300));
   await page.screenshot({ path: `${OUT}/08-activities.png`, fullPage: true });
 });
 

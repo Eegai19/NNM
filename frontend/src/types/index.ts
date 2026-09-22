@@ -188,6 +188,32 @@ export interface EngineerWorkloadItem {
   activities: number;
 }
 
+export interface StatusCounts {
+  not_started: number;
+  in_progress: number;
+  completed: number;
+  blocked: number;
+}
+
+export interface HierarchyCircle {
+  circle_id: number;
+  circle: string;
+  node_count: number;
+  status: StatusCounts;
+  total_activities: number;
+  completed_activities: number;
+}
+
+export interface HierarchyProduct {
+  product_id: number;
+  product: string;
+  node_count: number;
+  status: StatusCounts;
+  total_activities: number;
+  completed_activities: number;
+  circles: HierarchyCircle[];
+}
+
 export interface StatusBreakdownItem {
   status: string;
   count: number;

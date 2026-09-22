@@ -6,15 +6,18 @@ from sqlalchemy.orm import Session
 
 from app.models.activity import NodeActivity
 from app.models.assignment import NodeAssignment
-from app.models.catalog import Circle
-from app.models.enums import ActivityStatus, UserRole
+from app.models.catalog import Circle, Product
+from app.models.enums import ActivityStatus, NodeStatus, UserRole
 from app.models.node import Node
 from app.models.user import User
 from app.schemas.dashboard import (
     CircleSummaryItem,
     DashboardSummary,
     EngineerWorkloadItem,
+    HierarchyCircle,
+    HierarchyProduct,
     StatusBreakdownItem,
+    StatusCounts,
 )
 
 
@@ -95,3 +98,89 @@ def status_breakdown(db: Session) -> list[StatusBreakdownItem]:
         .order_by(func.count(Node.id).desc())
     ).all()
     return [StatusBreakdownItem(status=str(state), count=int(count)) for state, count in rows]
+
+
+#: Maps a node status onto the field that counts it.
+_STATUS_FIELDS = {
+    NodeStatus.NOT_STARTED: "not_started",
+    NodeStatus.IN_PROGRESS: "in_progress",
+    NodeStatus.COMPLETED: "completed",
+    NodeStatus.BLOCKED: "blocked",
+}
+
+
+def hierarchy(db: Session) -> list[HierarchyProduct]:
+    """Product -> circle rollup for the dashboard drill-down.
+
+    Node rows themselves are not included: the UI fetches them from
+    ``GET /nodes?product_id=&circle_id=`` when a circle is expanded, so this
+    response stays small however large the inventory grows.
+    """
+    products = list(
+        db.execute(select(Product).order_by(Product.product_name.asc())).scalars().all()
+    )
+    result = {
+        product.id: HierarchyProduct(
+            product_id=product.id,
+            product=product.product_name,
+            status=StatusCounts(),
+            circles=[],
+        )
+        for product in products
+    }
+    circles_by_product: dict[int, dict[int, HierarchyCircle]] = {p.id: {} for p in products}
+
+    # --- Node counts, grouped by product, circle and status ----------------
+    node_rows = db.execute(
+        select(
+            Node.product_id,
+            Node.circle_id,
+            Circle.circle_name,
+            Node.overall_status,
+            func.count(Node.id),
+        )
+        .join(Circle, Node.circle_id == Circle.id)
+        .group_by(Node.product_id, Node.circle_id, Circle.circle_name, Node.overall_status)
+    ).all()
+
+    for product_id, circle_id, circle_name, status, count in node_rows:
+        product_entry = result.get(product_id)
+        if product_entry is None:  # a node pointing at a deleted product
+            continue
+
+        bucket = circles_by_product[product_id].get(circle_id)
+        if bucket is None:
+            bucket = HierarchyCircle(
+                circle_id=circle_id, circle=circle_name, status=StatusCounts()
+            )
+            circles_by_product[product_id][circle_id] = bucket
+
+        field = _STATUS_FIELDS[NodeStatus(status)]
+        setattr(bucket.status, field, getattr(bucket.status, field) + count)
+        setattr(product_entry.status, field, getattr(product_entry.status, field) + count)
+        bucket.node_count += count
+        product_entry.node_count += count
+
+    # --- Activity progress, same grouping ----------------------------------
+    activity_rows = db.execute(
+        select(Node.product_id, Node.circle_id, NodeActivity.status, func.count(NodeActivity.id))
+        .join(NodeActivity, NodeActivity.node_id == Node.id)
+        .group_by(Node.product_id, Node.circle_id, NodeActivity.status)
+    ).all()
+
+    for product_id, circle_id, status, count in activity_rows:
+        product_entry = result.get(product_id)
+        bucket = circles_by_product.get(product_id, {}).get(circle_id)
+        if product_entry is None or bucket is None:
+            continue
+
+        product_entry.total_activities += count
+        bucket.total_activities += count
+        if ActivityStatus(status) == ActivityStatus.COMPLETED:
+            product_entry.completed_activities += count
+            bucket.completed_activities += count
+
+    for product_id, buckets in circles_by_product.items():
+        result[product_id].circles = sorted(buckets.values(), key=lambda c: c.circle)
+
+    return [result[product.id] for product in products]

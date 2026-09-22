@@ -3,6 +3,7 @@ import type {
   CircleSummaryItem,
   DashboardSummary,
   EngineerWorkloadItem,
+  HierarchyProduct,
   StatusBreakdownItem,
 } from "@/types";
 
@@ -21,6 +22,12 @@ export const dashboardService = {
     const { data } = await api.get<EngineerWorkloadItem[]>("/dashboard/engineer-workload", {
       params: { limit },
     });
+    return data;
+  },
+
+  /** Product -> circle rollup powering the dashboard drill-down. */
+  async hierarchy(): Promise<HierarchyProduct[]> {
+    const { data } = await api.get<HierarchyProduct[]>("/dashboard/hierarchy");
     return data;
   },
 

@@ -52,8 +52,12 @@ Open <http://localhost:5173> and sign in.
 | Account | Username | Password | Role |
 |---|---|---|---|
 | Bootstrap admin | `admin` | `Admin@123` | TPM |
-| Demo lead | `priya.lead` | `Nokia@123` | LEAD |
-| Demo engineer | `eegai` | `Nokia@123` | ENGINEER |
+| Rohit | `rohit` | `Nokia@123` | TPM |
+| Daljit | `daljit` | `Nokia@123` | LEAD |
+| Ravi | `ravi` | `Nokia@123` | LEAD |
+| Gopi | `gopi` | `Nokia@123` | ENGINEER |
+| Eegai | `eegai` | `Nokia@123` | ENGINEER |
+| Buran | `buran` | `Nokia@123` | ENGINEER |
 
 > The demo accounts exist only when you seed with `--demo`. **Change
 > `admin`'s password immediately in any real deployment** — the value comes from
@@ -87,11 +91,17 @@ reference data and the bootstrap TPM:
 
 ```bash
 python -m scripts.seed            # schema + products, circles, activities + admin
-python -m scripts.seed --demo     # ...plus 8 demo users, 40 nodes, ~180 activities
+python -m scripts.seed --demo     # ...plus the 6 demo users and the 28-node inventory
 python -m scripts.seed --reset    # DROP every table first (asks for confirmation)
+python -m scripts.seed --reset --yes --demo   # non-interactive rebuild
 ```
 
-Seeding is idempotent — re-running it will not duplicate master data.
+Seeding is idempotent — re-running it will not duplicate master data, and the
+node inventory is skipped if any node already exists.
+
+The inventory itself lives in [`backend/scripts/seed_data.py`](backend/scripts/seed_data.py):
+products, circles, the activity workflow, the demo users and the node list are
+plain Python lists, so you can edit them without touching the seeding logic.
 
 ### Running
 
@@ -199,6 +209,34 @@ AuditTrail — append-only, references any entity and optionally a node
 | `ActivityLog` | An evidence file attached to a node activity |
 | `AuditTrail` | Who did what, when, with a before/after diff |
 
+### Reference data
+
+**Products** — `CMM`, `CMD`, `NRD`. A node's product is derived from the token
+inside its name (`UWMORCK02NCMM03` → CMM).
+
+**Circles** — `PB`, `HR`, `KL`, `UPE`, `UPW` are the circles in scope. The
+current node inventory also references `HP`, `JK`, `OD` and `RJ`, so the seeder
+creates those too; deactivate them under **Master Data** if you want only the
+first five offered when creating a node. A node's circle comes from the first
+two characters of its name, with `UW` → `UPW` and `UE` → `UPE`.
+
+**Activity workflow** — every node carries all seven steps, in order, and each
+one is its own upload point for artifacts:
+
+| # | Activity | Purpose |
+|---|---|---|
+| 1 | Onboarding | Register the node, confirm pre-requisites and raise the tracker |
+| 2 | FCT Config | Apply the factory configuration template |
+| 3 | Full Config Day 0 | Load the complete Day 0 configuration baseline |
+| 4 | Full Config Day 1 | Load Day 1 config and site-specific parameters |
+| 5 | Reachability | Verify management and signalling reachability end to end |
+| 6 | UAT | Run acceptance testing and capture the customer sign-off |
+| 7 | Go Live | Cut over to live traffic and hand over to operations |
+
+Node names are normalised to upper case on load, which is also why
+`JKSRICK02NCMM04` appears once even though the source list contains it twice
+(once lower case, once upper).
+
 **Enumerations**
 
 - `deployment_state`: `PLANNED`, `IN_PROGRESS`, `INTEGRATION`, `ACCEPTANCE`, `LIVE`, `ON_HOLD`, `CANCELLED`
@@ -243,6 +281,26 @@ to render write controls, so an engineer sees a **Read only** badge instead of
 buttons that would fail. The server enforces it regardless of what the UI shows.
 
 ---
+
+## Dashboard drill-down
+
+Alongside the charts, the dashboard carries a **Browse by product and circle**
+panel: open a product to see the circles inside it, then a circle to see its
+nodes, with status shown at every level.
+
+```
+CMM   28 nodes · 9 circles      6 Done · 21 In progress · 1 Not started   114/196
+ ├── PB    3 nodes              2 Done · 1 In progress                     18/21
+ │    ├── PBAMBCK05NCMM07       Live         Completed                      7/7
+ │    ├── PBLUDCK04NCMM05       Integration  In Progress                    3/7
+ │    └── PBMOHCK09NCMM06       Acceptance   In Progress                    5/7
+ └── UPE   5 nodes              5 In progress                              17/35
+```
+
+`GET /api/dashboard/hierarchy` returns only the product and circle rollup —
+node rows are fetched from `GET /nodes?product_id=&circle_id=` when a circle is
+opened, so the dashboard payload stays small however large the inventory grows.
+Clicking a node opens its detail page.
 
 ## Business rules
 
@@ -295,6 +353,7 @@ except `POST /api/auth/login`.
 | GET | `/dashboard/circle-summary` | `[{circle, count}]` |
 | GET | `/dashboard/engineer-workload` | `[{engineer, assigned_nodes, activities}]` |
 | GET | `/dashboard/status-breakdown` | `[{status, count}]` |
+| GET | `/dashboard/hierarchy` | Product → circle rollup with node counts, per-status counts and activity progress |
 
 ### Nodes
 | Method | Path | Access |
@@ -352,7 +411,7 @@ except `POST /api/auth/login`.
 
 ## Testing
 
-### Backend — 108 tests
+### Backend — 131 tests
 
 ```bash
 cd backend
@@ -364,9 +423,10 @@ pytest --tb=short -q
 Each test gets an isolated in-memory database and its own upload directory.
 Coverage spans auth and JWT expiry, the full permission matrix, node and
 activity workflows, the completion rule, uploads and downloads, dashboard
-aggregations, search, Excel exports and the audit trail.
+aggregations and the drill-down hierarchy, search, Excel exports, the audit
+trail, settings parsing and the seed inventory rules.
 
-### Frontend — 37 tests
+### Frontend — 50 tests
 
 ```bash
 cd frontend
@@ -375,8 +435,9 @@ npm run test:watch
 ```
 
 Unit tests cover the formatting and validation helpers; component tests cover
-the login form, buttons, badges, pagination, the role gate, the confirm dialog
-and the error boundary. Network calls are blocked in the test setup, so an
+the login form, the product → circle → node explorer (including its lazy
+loading and retry paths), buttons, badges, pagination, the role gate, the
+confirm dialog and the error boundary. Network calls are blocked in the test setup, so an
 unmocked request fails loudly instead of reaching out.
 
 ### Browser smoke tests
@@ -386,8 +447,9 @@ unmocked request fails loudly instead of reaching out.
 cd frontend && npm run e2e
 ```
 
-Drives a real browser through every page, both themes, the 390px mobile layout,
-the activity-completion rule and the engineer read-only rule. See
+Drives a real browser through every page, the dashboard drill-down, both
+themes, the 390px mobile layout, the activity-completion rule and the engineer
+read-only rule. See
 [`frontend/e2e/README.md`](frontend/e2e/README.md).
 
 ---
@@ -428,7 +490,8 @@ NNM/
         ├── components/
         │   ├── ui/             # Button, Input, Dialog, Select, Table, Toast, …
         │   ├── common/         # PageHeader, Pagination, EmptyState, ErrorBoundary, …
-        │   └── charts/         # Recharts wrappers and the chart theme
+        │   ├── charts/         # Recharts wrappers and the chart theme
+        │   └── dashboard/      # Product -> circle -> node explorer
         ├── layouts/            # AppLayout, Sidebar, Topbar, navigation
         ├── pages/              # Login, Dashboard, Nodes, Activities, Assignments,
         │                       #   Reports, Users, Master Data, error pages

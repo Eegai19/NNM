@@ -9,6 +9,7 @@ import {
 import { Link } from "react-router-dom";
 
 import { CircleSummaryChart } from "@/components/charts/CircleSummaryChart";
+import { NodeExplorer } from "@/components/dashboard/NodeExplorer";
 import { EngineerWorkloadChart } from "@/components/charts/EngineerWorkloadChart";
 import { StatusBreakdownChart } from "@/components/charts/StatusBreakdownChart";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -44,12 +45,14 @@ export default function DashboardPage() {
   const circles = useAsync(() => dashboardService.circleSummary(), []);
   const workload = useAsync(() => dashboardService.engineerWorkload(12), []);
   const breakdown = useAsync(() => dashboardService.statusBreakdown(), []);
+  const explorer = useAsync(() => dashboardService.hierarchy(), []);
 
   const reloadAll = () => {
     void summary.reload();
     void circles.reload();
     void workload.reload();
     void breakdown.reload();
+    void explorer.reload();
   };
 
   const stats = summary.data;
@@ -141,6 +144,25 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Drill-down: product -> circle -> node, with status at every level */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Browse by product and circle</CardTitle>
+          <CardDescription>
+            Open a product to see its circles, then a circle to see its nodes and where each
+            one stands.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NodeExplorer
+            products={explorer.data}
+            loading={explorer.loading}
+            error={explorer.error}
+            onRetry={() => void explorer.reload()}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
