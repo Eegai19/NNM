@@ -627,12 +627,48 @@ server {
 
 The single-process setup is the default, not a requirement. Skip the frontend
 build and the API serves only `/api`; run `npm run dev` (or host `dist/` on a
-CDN or Vercel — see [`frontend/vercel.json`](frontend/vercel.json)) and set
-`VITE_API_BASE_URL` plus `NNM_CORS_ORIGINS` to connect the two.
+CDN or Vercel) and set `VITE_API_BASE_URL` plus `NNM_CORS_ORIGINS` to connect
+the two.
 
-Note that a serverless host cannot run the API, whichever split you choose:
-uploaded artifacts and the SQLite file need a filesystem that survives between
-requests.
+See [Deploying to Vercel](#deploying-to-vercel) for that route, and read the
+caveat there first: a serverless host needs both PostgreSQL and object storage
+before uploads work.
+
+### Deploying to Vercel
+
+The repository carries a root [`vercel.json`](vercel.json) describing the two
+services Vercel's importer offers — the Vite frontend and the FastAPI backend —
+plus [`backend/api/index.py`](backend/api/index.py), the entry point Vercel's
+Python runtime looks for. Import the repo, keep the detected settings and add:
+
+| Variable | Value |
+|---|---|
+| `NNM_DATABASE_URL` | `postgresql+psycopg://…` — **required**, see below |
+| `NNM_SECRET_KEY` | a long random value |
+| `NNM_DEBUG` | `false` |
+| `NNM_ENVIRONMENT` | `production` |
+| `VITE_API_BASE_URL` | `/api` (same origin, so no CORS needed) |
+
+Uncomment `psycopg[binary]` in `backend/requirements.txt` before deploying — it
+is commented out by default so local SQLite installs stay small.
+
+> **Uploads do not survive on Vercel yet.** Serverless functions get an
+> ephemeral filesystem, and `app/services/storage_service.py` writes activity
+> log artifacts to local disk, with downloads streamed from that path. On
+> Vercel those files disappear between invocations — and since an activity
+> cannot be completed without one, the workflow breaks. Making this work needs
+> the storage service moved to object storage (Vercel Blob or S3), with
+> downloads redirecting to a signed URL.
+>
+> The database half is already solved: point `NNM_DATABASE_URL` at Vercel
+> Postgres, Neon or Supabase and no code changes.
+
+If Vercel forwards the rewritten path with `/api` stripped, set
+`NNM_API_V1_PREFIX=""` so the routes line up. Leave it unset otherwise.
+
+**For one service rather than two**, use the Docker image above: it serves the
+UI and the API from a single process with a persistent volume, and needs no
+storage refactor.
 
 ### Production checklist
 
