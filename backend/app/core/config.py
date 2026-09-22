@@ -1,11 +1,13 @@
 """Application configuration loaded from the environment."""
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 25
 
     # CORS ----------------------------------------------------------------
-    cors_origins: list[str] = [
+    cors_origins: Annotated[list[str], NoDecode] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
@@ -54,9 +56,20 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        """Allow ``NNM_CORS_ORIGINS`` to be a comma separated string."""
+        """Parse ``NNM_CORS_ORIGINS`` as a comma separated list, or as JSON.
+
+        ``NoDecode`` on the field stops pydantic-settings from JSON-decoding the
+        raw value first, which would reject the comma separated form that
+        ``.env.example`` documents.
+        """
         if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
+            text = value.strip()
+            if text.startswith("["):
+                try:
+                    return json.loads(text)
+                except ValueError:
+                    pass
+            return [origin.strip() for origin in text.split(",") if origin.strip()]
         return value
 
     @field_validator("storage_dir", mode="before")
